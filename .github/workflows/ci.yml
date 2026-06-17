@@ -1,0 +1,72 @@
+name: CI
+
+# Anti-rot gate. The limit-normal OpenSubdiv-oracle tests silently rotted
+# once (the `opensubdiv-petite` dev-dep drifted its API and bumped vendored
+# OpenSubdiv 3.5 -> 3.6.1) because nothing ran them. The `oracle` job below
+# compiles AND runs those tests on every push/PR, which catches both compile
+# drift and runtime divergence.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Cheap, fast feedback: formatting + library-level lint. Compiles only the
+  # subdiv-kernels lib (no `opensubdiv-petite`, no C++ OpenSubdiv build).
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      # Informational only: the tree carries pre-existing rustfmt version-drift
+      # diffs (doc/import rewrapping). Surface them without blocking PRs until a
+      # one-shot tree-wide reformat under a pinned toolchain lands; flip to a
+      # hard gate then.
+      - name: rustfmt (informational)
+        run: cargo fmt --all --check
+        continue-on-error: true
+      - name: clippy (lib)
+        run: cargo clippy --lib
+
+  # Full suite including the OpenSubdiv-oracle gates. This is the real
+  # anti-rot job: it needs the sibling `opensubdiv-petite` checkout (a path
+  # dev-dep, `../opensubdiv-petite/opensubdiv-petite`) plus its vendored
+  # OpenSubdiv submodule, built via cmake + a C++ compiler.
+  oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout subdiv-kernels
+        uses: actions/checkout@v4
+        with:
+          path: subdiv-kernels
+
+      - name: Checkout opensubdiv-petite (sibling path dep)
+        uses: actions/checkout@v4
+        with:
+          repository: virtualritz/opensubdiv-petite
+          path: opensubdiv-petite
+          submodules: recursive
+
+      - name: Install C++ build tooling for vendored OpenSubdiv
+        run: sudo apt-get update && sudo apt-get install -y cmake clang
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: subdiv-kernels
+
+      - name: Test (default features, includes OSD oracle)
+        working-directory: subdiv-kernels
+        run: cargo test --no-fail-fast

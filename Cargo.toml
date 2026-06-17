@@ -1,0 +1,44 @@
+[package]
+name = "subdiv-kernels"
+version = "0.1.0"
+edition = "2024"
+description = "Standalone subdivision kernel crate for Rust and wasm32 workflows"
+license = "MIT OR Apache-2.0"
+
+[features]
+default = []
+serde = ["dep:serde"]
+parallel = ["dep:rayon"]
+## GPU (wgpu) compute path for stencil evaluation.
+wgpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
+
+[dependencies]
+thiserror = "2"
+rayon = { version = "1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+enum_dispatch = "0.3"
+wgpu = { version = "29", optional = true }
+bytemuck = { version = "1", features = ["derive"], optional = true }
+pollster = { version = "0.4", optional = true }
+rustc-hash = "2.1.2"
+smallvec = { version = "1.15.2", features = ["union"] }
+
+[dev-dependencies]
+criterion = "0.5"
+## Limit-surface oracle (GPU-subdivision design §5/§7): OpenSubdiv far's
+## LimitStencilTable. Builds the vendored OpenSubdiv C++ -- the first
+## compile takes minutes.
+opensubdiv-petite = { path = "../opensubdiv-petite/opensubdiv-petite" }
+
+[[bench]]
+name = "sparse_eval"
+harness = false
+
+[[bench]]
+name = "closest_point"
+harness = false
+
+[[bench]]
+name = "wgpu_eval"
+harness = false
+required-features = ["wgpu"]

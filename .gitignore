@@ -1,0 +1,5 @@
+Cargo.lock
+/target
+
+# Local Claude Code config
+.claude/
