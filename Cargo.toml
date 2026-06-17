@@ -3,7 +3,13 @@ name = "subdiv-kernels"
 version = "0.1.0"
 edition = "2024"
 description = "Standalone subdivision kernel crate for Rust and wasm32 workflows"
-license = "MIT OR Apache-2.0"
+license = "MIT OR Apache-2.0 OR Zlib OR BSD-3-Clause"
+
+[package.metadata.docs.rs]
+# Document every feature (incl. wgpu) on docs.rs, with "available on feature X"
+# badges (needs the docsrs cfg + the doc_cfg nightly feature gated in lib.rs).
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
 default = []

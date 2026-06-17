@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Subdivision surface kernels — Catmull–Clark, Loop, √3, and Doo–Sabin.
 //!
 //! Subdivision refines a coarse polygon **control mesh** into a finer, smoother
@@ -12,7 +13,7 @@
 //!
 //! # Example
 //!
-//! Refine a cube and exercise the main pieces of the API — one-shot
+//! Refine a tetrahedron and exercise the main pieces of the API — one-shot
 //! interpolation, composed-table re-evaluation, sparse-edit queries,
 //! face-varying (UV) channels, the cached refinement handle, and limit
 //! stencils.
@@ -95,6 +96,37 @@
 //! assert_eq!(obj.lines().filter(|l| l.starts_with("v ")).count(), refined.len());
 //! # Ok::<(), subdiv_kernels::KernelError>(())
 //! ```
+//!
+//! # Performance
+//!
+//! [`RefinementResult::interpolate`] chains the per-level stencils — the same
+//! algorithmic cost as direct subdivision, best for a one-shot refine. For
+//! animation (static topology, changing data),
+//! [`RefinementResult::compose_stencils`] precomputes a single table mapping
+//! control points straight to the final level, so each frame is one
+//! [`StencilTable::interpolate`] call. Either path applies to any number of
+//! data buffers (positions, UVs, …) that share the topology.
+//!
+//! # Implementing [`Interpolatable`]
+//!
+//! Any type with a weighted add can be subdivided. The crate ships impls for
+//! `f32`, `f64`, and `[f32; N]` / `[f64; N]`; for your own types:
+//!
+//! ```
+//! use subdiv_kernels::Interpolatable;
+//!
+//! #[derive(Default, Clone)]
+//! struct Color { r: f32, g: f32, b: f32, a: f32 }
+//!
+//! impl Interpolatable for Color {
+//!     fn add_with_weight(&mut self, src: &Self, weight: f32) {
+//!         self.r += src.r * weight;
+//!         self.g += src.g * weight;
+//!         self.b += src.b * weight;
+//!         self.a += src.a * weight;
+//!     }
+//! }
+//! ```
 
 mod catmull_clark;
 mod closest_point;
@@ -138,7 +170,17 @@ pub use stencil::StencilTable;
 // re-exported at the crate root for terse `use subdiv_kernels::Mesh` sites.
 pub use topology::{Adjacency, FaceVaryingChannel, Mesh};
 #[cfg(feature = "wgpu")]
+#[cfg_attr(docsrs, doc(cfg(feature = "wgpu")))]
 pub use wgpu::{
     BufferDescriptor, GpuContext, MAX_COMPONENTS, STENCIL_EVAL_WGSL, StencilEvalPipeline,
     StencilTableGpu, evaluate_stencils,
 };
+
+/// Common imports for typical use: `use subdiv_kernels::prelude::*;`.
+pub mod prelude {
+    pub use crate::{
+        BoundaryInterpolation, CornerRule, CreaseComputationMethod, FaceVaryingChannel,
+        FaceVaryingInterpolation, Interpolatable, KernelError, Mesh, Refiner, RefinementResult,
+        Scheme, SchemeOptions, StencilTable, TriangleSubdivisionRule, UniformRefine,
+    };
+}
