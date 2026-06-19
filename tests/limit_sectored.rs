@@ -125,9 +125,9 @@ fn refine(
 
 /// Number of sharp (creased) edges incident to refined vertex `vi`.
 fn sharp_edge_count(result: &RefinementResult, vi: usize) -> usize {
-    let start = result.adjacency.vert_edge_offsets[vi] as usize;
-    let end = result.adjacency.vert_edge_offsets[vi + 1] as usize;
-    result.adjacency.vert_edges[start..end]
+    let start = result.adjacency.vertex_edge_offsets[vi] as usize;
+    let end = result.adjacency.vertex_edge_offsets[vi + 1] as usize;
+    result.adjacency.vertex_edges[start..end]
         .iter()
         .filter(|&&ei| result.topology.edge_creases[ei as usize] > 0.0)
         .count()
@@ -139,9 +139,9 @@ fn corner_rows(
     sectored: &SectoredLimitStencils,
     vi: usize,
 ) -> Vec<(u32, u32)> {
-    let start = result.adjacency.vert_face_offsets[vi] as usize;
-    let end = result.adjacency.vert_face_offsets[vi + 1] as usize;
-    result.adjacency.vert_faces[start..end]
+    let start = result.adjacency.vertex_face_offsets[vi] as usize;
+    let end = result.adjacency.vertex_face_offsets[vi + 1] as usize;
+    result.adjacency.vertex_faces[start..end]
         .iter()
         .map(|&fi| {
             let off = (fi * 4) as usize;
@@ -318,8 +318,8 @@ fn spoked_cube() -> (Mesh, Vec<[f32; 3]>, u32) {
         .iter()
         .position(|origin| *origin == VertexOrigin::Face(1))
         .expect("face point of base face 1") as u32;
-    let estart = result.adjacency.vert_edge_offsets[center as usize] as usize;
-    let neighbors: Vec<u32> = result.adjacency.vert_edges[estart..estart + 3]
+    let estart = result.adjacency.vertex_edge_offsets[center as usize] as usize;
+    let neighbors: Vec<u32> = result.adjacency.vertex_edges[estart..estart + 3]
         .iter()
         .map(|&ei| {
             let [a, b] = result.topology.edge_vertices[ei as usize];

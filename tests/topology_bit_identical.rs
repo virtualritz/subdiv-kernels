@@ -56,10 +56,10 @@ fn checksum(r: &RefinementResult) -> u64 {
         h.u32(e[0]);
         h.u32(e[1]);
     });
-    h.u32s(&a.vert_edge_offsets);
-    h.u32s(&a.vert_edges);
-    h.u32s(&a.vert_face_offsets);
-    h.u32s(&a.vert_faces);
+    h.u32s(&a.vertex_edge_offsets);
+    h.u32s(&a.vertex_edges);
+    h.u32s(&a.vertex_face_offsets);
+    h.u32s(&a.vertex_faces);
     a.edge_is_boundary.iter().for_each(|&b| h.byte(b as u8));
     a.vertex_is_boundary.iter().for_each(|&b| h.byte(b as u8));
 

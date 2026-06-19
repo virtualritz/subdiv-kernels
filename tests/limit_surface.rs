@@ -204,9 +204,9 @@ fn averaged_vertex_normal(
     positions: &[[f32; 3]],
     vi: usize,
 ) -> [f64; 3] {
-    let start = adjacency.vert_face_offsets[vi] as usize;
-    let end = adjacency.vert_face_offsets[vi + 1] as usize;
-    let sum = adjacency.vert_faces[start..end].iter().fold(
+    let start = adjacency.vertex_face_offsets[vi] as usize;
+    let end = adjacency.vertex_face_offsets[vi + 1] as usize;
+    let sum = adjacency.vertex_faces[start..end].iter().fold(
         [0.0f64; 3],
         |acc, &fi| {
             let off = (fi * 4) as usize;
@@ -292,9 +292,9 @@ fn assert_limit_converges(
 /// limit normal is one-sided, so the two-sided numeric average is not a
 /// convergence target for it.
 fn touches_crease(result: &RefinementResult, vi: usize) -> bool {
-    let start = result.adjacency.vert_edge_offsets[vi] as usize;
-    let end = result.adjacency.vert_edge_offsets[vi + 1] as usize;
-    result.adjacency.vert_edges[start..end]
+    let start = result.adjacency.vertex_edge_offsets[vi] as usize;
+    let end = result.adjacency.vertex_edge_offsets[vi + 1] as usize;
+    result.adjacency.vertex_edges[start..end]
         .iter()
         .any(|&ei| result.topology.edge_creases[ei as usize] > 0.0)
 }

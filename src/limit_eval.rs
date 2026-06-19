@@ -526,9 +526,9 @@ fn isolation_node(
     let support_faces: Vec<u32> = corners
         .iter()
         .flat_map(|&corner| {
-            let start = adjacency.vert_face_offsets[corner as usize] as usize;
-            let end = adjacency.vert_face_offsets[corner as usize + 1] as usize;
-            adjacency.vert_faces[start..end].iter().copied()
+            let start = adjacency.vertex_face_offsets[corner as usize] as usize;
+            let end = adjacency.vertex_face_offsets[corner as usize + 1] as usize;
+            adjacency.vertex_faces[start..end].iter().copied()
         })
         .collect::<BTreeSet<u32>>()
         .into_iter()
@@ -766,8 +766,8 @@ fn persistent_feature_vertex(
     adjacency: &Adjacency,
     options: &SchemeOptions,
 ) -> bool {
-    let start = adjacency.vert_edge_offsets[vi] as usize;
-    let end = adjacency.vert_edge_offsets[vi + 1] as usize;
+    let start = adjacency.vertex_edge_offsets[vi] as usize;
+    let end = adjacency.vertex_edge_offsets[vi + 1] as usize;
     let persistent_crease = |s: f32| persistent_sharp_edge(s, options);
     let persistent_corner = |s: f32| {
         s > 0.0
@@ -778,7 +778,7 @@ fn persistent_feature_vertex(
     adjacency.vertex_is_boundary[vi]
         || end - start != 4
         || persistent_corner(mesh.vertex_corners[vi])
-        || adjacency.vert_edges[start..end]
+        || adjacency.vertex_edges[start..end]
             .iter()
             .any(|&e| persistent_crease(mesh.edge_creases[e as usize]))
 }

@@ -225,16 +225,16 @@ pub(crate) fn refine_topology_once(
             }
         }
 
-        let (vert_edge_offsets, vert_edges) = post_flip_analysis.vertex_edges.clone().into_parts();
-        let (vert_face_offsets, vert_faces) = post_flip_analysis.vertex_faces.clone().into_parts();
+        let (vertex_edge_offsets, vertex_edges) = post_flip_analysis.vertex_edges.clone().into_parts();
+        let (vertex_face_offsets, vertex_faces) = post_flip_analysis.vertex_faces.clone().into_parts();
 
         Adjacency {
             face_edges,
             edge_faces,
-            vert_edge_offsets,
-            vert_edges,
-            vert_face_offsets,
-            vert_faces,
+            vertex_edge_offsets,
+            vertex_edges,
+            vertex_face_offsets,
+            vertex_faces,
             edge_is_boundary,
             vertex_is_boundary,
         }

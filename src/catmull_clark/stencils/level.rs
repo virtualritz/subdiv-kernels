@@ -130,16 +130,16 @@ pub(super) fn adjacency_from_topology(refined_topo: &Topology) -> Adjacency {
         }
     }
 
-    let (vert_edge_offsets, vert_edges) = refined_topo.vertex_edges.clone().into_parts();
-    let (vert_face_offsets, vert_faces) = refined_topo.vertex_faces.clone().into_parts();
+    let (vertex_edge_offsets, vertex_edges) = refined_topo.vertex_edges.clone().into_parts();
+    let (vertex_face_offsets, vertex_faces) = refined_topo.vertex_faces.clone().into_parts();
 
     Adjacency {
         face_edges: face_edges_flat,
         edge_faces: edge_faces_pairs,
-        vert_edge_offsets,
-        vert_edges,
-        vert_face_offsets,
-        vert_faces,
+        vertex_edge_offsets,
+        vertex_edges,
+        vertex_face_offsets,
+        vertex_faces,
         edge_is_boundary,
         vertex_is_boundary,
     }
@@ -179,10 +179,10 @@ pub(crate) fn base_level_data(
         adjacency: Adjacency {
             face_edges: Vec::new(),
             edge_faces: Vec::new(),
-            vert_edge_offsets: Vec::new(),
-            vert_edges: Vec::new(),
-            vert_face_offsets: Vec::new(),
-            vert_faces: Vec::new(),
+            vertex_edge_offsets: Vec::new(),
+            vertex_edges: Vec::new(),
+            vertex_face_offsets: Vec::new(),
+            vertex_faces: Vec::new(),
             edge_is_boundary: Vec::new(),
             vertex_is_boundary: Vec::new(),
         },

@@ -170,16 +170,16 @@ pub(crate) fn refine_topology_once(
 
     // Adjacency export for the refined mesh (consumed by adapters).
     let (face_edge_offsets, face_edges_flat) = refined_topo.face_edges.clone().into_parts();
-    let (vert_edge_offsets, vert_edges) = refined_topo.vertex_edges.clone().into_parts();
-    let (vert_face_offsets, vert_faces) = refined_topo.vertex_faces.clone().into_parts();
+    let (vertex_edge_offsets, vertex_edges) = refined_topo.vertex_edges.clone().into_parts();
+    let (vertex_face_offsets, vertex_faces) = refined_topo.vertex_faces.clone().into_parts();
     let _ = face_edge_offsets;
     let adjacency = Adjacency {
         face_edges: face_edges_flat,
         edge_faces: refined_topo.edge_faces.clone(),
-        vert_edge_offsets,
-        vert_edges,
-        vert_face_offsets,
-        vert_faces,
+        vertex_edge_offsets,
+        vertex_edges,
+        vertex_face_offsets,
+        vertex_faces,
         edge_is_boundary: refined_topo.edge_is_boundary.clone(),
         vertex_is_boundary: refined_topo.vertex_is_boundary.clone(),
     };

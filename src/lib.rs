@@ -1,4 +1,5 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+#![warn(missing_docs)]
 //! Subdivision surface kernels — Catmull–Clark, Loop, √3, and Doo–Sabin.
 //!
 //! Subdivision refines a coarse polygon **control mesh** into a finer, smoother
@@ -180,7 +181,7 @@ pub use wgpu::{
 pub mod prelude {
     pub use crate::{
         BoundaryInterpolation, CornerRule, CreaseComputationMethod, FaceVaryingChannel,
-        FaceVaryingInterpolation, Interpolatable, KernelError, Mesh, Refiner, RefinementResult,
+        FaceVaryingInterpolation, Interpolatable, KernelError, Mesh, RefinementResult, Refiner,
         Scheme, SchemeOptions, StencilTable, TriangleSubdivisionRule, UniformRefine,
     };
 }

@@ -1,3 +1,6 @@
+//! Mesh topology types: the control cage [`Mesh`], refined [`Adjacency`], and
+//! face-varying channels.
+
 use crate::KernelError;
 
 /// The control mesh: faces, edges, and optional crease/corner sharpness — but
@@ -79,12 +82,14 @@ pub struct Adjacency {
     pub face_edges: Vec<u32>,
     /// Two incident faces per edge. `u32::MAX` = boundary.
     pub edge_faces: Vec<[u32; 2]>,
-    /// CSR vertex → edge adjacency.
-    pub vert_edge_offsets: Vec<u32>,
-    pub vert_edges: Vec<u32>,
-    /// CSR vertex → face adjacency.
-    pub vert_face_offsets: Vec<u32>,
-    pub vert_faces: Vec<u32>,
+    /// CSR vertex → edge adjacency: per-vertex start offsets into `vertex_edges`.
+    pub vertex_edge_offsets: Vec<u32>,
+    /// Flattened incident-edge indices (sliced by `vertex_edge_offsets`).
+    pub vertex_edges: Vec<u32>,
+    /// CSR vertex → face adjacency: per-vertex start offsets into `vertex_faces`.
+    pub vertex_face_offsets: Vec<u32>,
+    /// Flattened incident-face indices (sliced by `vertex_face_offsets`).
+    pub vertex_faces: Vec<u32>,
     /// Per-edge boundary flag.
     pub edge_is_boundary: Vec<bool>,
     /// Per-vertex boundary flag.

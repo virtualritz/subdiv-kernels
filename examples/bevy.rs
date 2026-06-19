@@ -1,0 +1,497 @@
+//! Interactive Bevy + egui showcase for `subdiv-kernels`.
+//!
+//! A regular dodecahedron is subdivided live by Catmull–Clark. The egui panel
+//! controls the subdivision level (0–4), which face carries a creased edge ring
+//! and how sharp it is, and whether to shade with exact limit-surface normals;
+//! drag to orbit, scroll to zoom.
+//!
+//! Run with: `cargo run --example bevy --features bevy`
+//!
+//! The kernel stays geometry-agnostic — all Bevy/egui code lives here; the
+//! crate exposes no Bevy types.
+
+use bevy::asset::RenderAssetUsages;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
+use bevy::mesh::{Indices, PrimitiveTopology};
+use bevy::prelude::*;
+use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use std::collections::HashMap;
+use std::num::NonZeroU8;
+use subdiv_kernels::{Mesh as Cage, Refiner, Scheme, SchemeOptions, UniformRefine};
+
+const MAX_LEVEL: u8 = 4;
+/// A regular dodecahedron has 12 faces.
+const FACE_COUNT: usize = 12;
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(EguiPlugin::default())
+        .insert_resource(Params {
+            level: 2,
+            creased: true,
+            crease_face: 0,
+            crease_value: 4.0,
+            limit_normals: false,
+            dirty: false,
+        })
+        .insert_resource(UiWantsPointer(false))
+        .add_systems(Startup, setup)
+        .add_systems(EguiPrimaryContextPass, ui_panel)
+        .add_systems(Update, (orbit_camera, rebuild_mesh))
+        .run();
+}
+
+// ── Resources / components ──────────────────────────────────────────────
+
+#[derive(Resource)]
+struct Params {
+    level: u8,
+    creased: bool,
+    /// Which face's edge ring to crease (`0..FACE_COUNT`).
+    crease_face: usize,
+    /// Crease sharpness (1 = soft, 10 ≈ infinitely sharp).
+    crease_value: f32,
+    /// Shade with exact limit-surface normals instead of per-triangle normals.
+    limit_normals: bool,
+    dirty: bool,
+}
+
+/// Set by the egui system each frame so the orbit camera ignores drags that
+/// land on the panel.
+#[derive(Resource)]
+struct UiWantsPointer(bool);
+
+/// Handle to the surface mesh asset, rebuilt in place on parameter changes.
+#[derive(Resource)]
+struct SurfaceMesh(Handle<Mesh>);
+
+/// The control cage (dodecahedron) in `subdiv-kernels` form, plus the edge
+/// indices of every face (so any face's ring can be creased).
+#[derive(Resource)]
+struct CageData {
+    vertex_count: u32,
+    face_vertex_counts: Vec<u32>,
+    face_vertex_indices: Vec<u32>,
+    edge_vertices: Vec<[u32; 2]>,
+    positions: Vec<[f32; 3]>,
+    face_edges: Vec<Vec<usize>>,
+}
+
+#[derive(Resource, Clone, Copy)]
+struct Orbit {
+    yaw: f32,
+    pitch: f32,
+    radius: f32,
+}
+
+impl Orbit {
+    fn transform(&self) -> Transform {
+        let (sy, cy) = self.yaw.sin_cos();
+        let (sp, cp) = self.pitch.sin_cos();
+        let pos = Vec3::new(
+            self.radius * cp * sy,
+            self.radius * sp,
+            self.radius * cp * cy,
+        );
+        Transform::from_translation(pos).looking_at(Vec3::ZERO, Vec3::Y)
+    }
+}
+
+// ── Setup ───────────────────────────────────────────────────────────────
+
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    params: Res<Params>,
+) {
+    let cage = build_cage();
+    let handle = meshes.add(build_surface(&cage, &params));
+
+    commands.spawn((
+        Mesh3d(handle.clone()),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.55, 0.6, 0.85),
+            perceptual_roughness: 0.55,
+            ..default()
+        })),
+        Transform::default(),
+    ));
+    commands.insert_resource(SurfaceMesh(handle));
+    commands.insert_resource(cage);
+
+    let orbit = Orbit {
+        yaw: 0.7,
+        pitch: 0.45,
+        radius: 5.5,
+    };
+    // Bevy 0.19 lighting is per-camera: `AmbientLight` is `#[require(Camera)]`,
+    // and the directional light is parented to the camera so it lights the view
+    // from a consistent angle as you orbit.
+    commands
+        .spawn((
+            Camera3d::default(),
+            orbit.transform(),
+            AmbientLight {
+                brightness: 220.0,
+                ..default()
+            },
+        ))
+        .with_children(|camera| {
+            camera.spawn((
+                DirectionalLight {
+                    illuminance: 6000.0,
+                    shadow_maps_enabled: true,
+                    ..default()
+                },
+                // Local to the camera: up-and-left of the view direction.
+                Transform::from_xyz(-3.0, 5.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
+            ));
+        });
+    commands.insert_resource(orbit);
+}
+
+// ── egui panel ──────────────────────────────────────────────────────────
+
+fn ui_panel(
+    mut contexts: EguiContexts,
+    mut params: ResMut<Params>,
+    mut ui_wants: ResMut<UiWantsPointer>,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+    egui::Window::new("subdiv-kernels")
+        .default_width(240.0)
+        .show(ctx, |ui| {
+            ui.label("Catmull–Clark · dodecahedron");
+            ui.separator();
+            let mut changed = false;
+            changed |= ui
+                .add(egui::Slider::new(&mut params.level, 0..=MAX_LEVEL).text("level"))
+                .changed();
+            changed |= ui.checkbox(&mut params.creased, "creased ring").changed();
+            let creased = params.creased;
+            ui.add_enabled_ui(creased, |ui| {
+                changed |= ui
+                    .add(
+                        egui::Slider::new(&mut params.crease_face, 0..=FACE_COUNT - 1).text("face"),
+                    )
+                    .changed();
+                changed |= ui
+                    .add(egui::Slider::new(&mut params.crease_value, 1.0..=10.0).text("sharpness"))
+                    .changed();
+            });
+            changed |= ui
+                .checkbox(&mut params.limit_normals, "limit-surface normals")
+                .changed();
+            if changed {
+                params.dirty = true;
+            }
+            ui.separator();
+            ui.label("drag: orbit · scroll: zoom");
+        });
+    ui_wants.0 = ctx.egui_wants_pointer_input();
+    Ok(())
+}
+
+// ── Orbit camera ────────────────────────────────────────────────────────
+
+fn orbit_camera(
+    ui_wants: Res<UiWantsPointer>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    mut motion: MessageReader<MouseMotion>,
+    mut wheel: MessageReader<MouseWheel>,
+    mut orbit: ResMut<Orbit>,
+    mut camera: Single<&mut Transform, With<Camera3d>>,
+) {
+    // Drain readers regardless, so leaving the panel doesn't cause a jump.
+    let drag: Vec2 = motion.read().map(|m| m.delta).sum();
+    let scroll: f32 = wheel.read().map(|w| w.y).sum();
+    if ui_wants.0 {
+        return;
+    }
+
+    let mut changed = false;
+    if buttons.pressed(MouseButton::Left) && drag != Vec2::ZERO {
+        orbit.yaw -= drag.x * 0.005;
+        orbit.pitch = (orbit.pitch + drag.y * 0.005).clamp(-1.4, 1.4);
+        changed = true;
+    }
+    if scroll != 0.0 {
+        orbit.radius = (orbit.radius - scroll * 0.4).clamp(2.0, 20.0);
+        changed = true;
+    }
+    if changed {
+        **camera = orbit.transform();
+    }
+}
+
+// ── Rebuild on parameter change ─────────────────────────────────────────
+
+fn rebuild_mesh(
+    mut params: ResMut<Params>,
+    cage: Res<CageData>,
+    surface: Res<SurfaceMesh>,
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    if !params.dirty {
+        return;
+    }
+    params.dirty = false;
+    // The handle is created in `setup` and never removed, so this can't fail.
+    let _ = meshes.insert(surface.0.id(), build_surface(&cage, &params));
+}
+
+// ── Subdivision → Bevy mesh ─────────────────────────────────────────────
+
+/// Subdivide the cage to `params.level` (0 = base cage) and build a triangulated
+/// Bevy mesh. Normals are either exact limit-surface normals (`tangent1 ×
+/// tangent2` from the limit stencils) or averaged from the triangles.
+fn build_surface(cage: &CageData, params: &Params) -> Mesh {
+    let crease_ring = &cage.face_edges[params.crease_face.min(FACE_COUNT - 1)];
+    let edge_creases: Vec<f32> = (0..cage.edge_vertices.len())
+        .map(|i| {
+            if params.creased && crease_ring.contains(&i) {
+                params.crease_value
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
+    let mesh = Cage {
+        vertex_count: cage.vertex_count,
+        face_vertex_counts: cage.face_vertex_counts.clone(),
+        face_vertex_indices: cage.face_vertex_indices.clone(),
+        edge_vertices: cage.edge_vertices.clone(),
+        edge_creases,
+        vertex_corners: vec![0.0; cage.vertex_count as usize],
+    };
+
+    // Level 0 is the base cage; it has no refinement result, so limit normals
+    // fall back to calculated ones there.
+    let (positions, normals, tris) = if params.level == 0 {
+        let tris = fan_triangulate(&cage.face_vertex_counts, &cage.face_vertex_indices);
+        let normals = smooth_normals(&cage.positions, &tris);
+        (cage.positions.clone(), normals, tris)
+    } else {
+        let refiner =
+            Refiner::new(mesh, Scheme::CatmullClark, SchemeOptions::default()).expect("valid cage");
+        let result = refiner
+            .refine_uniform(&UniformRefine::from(
+                NonZeroU8::new(params.level).expect("level >= 1"),
+            ))
+            .expect("refinement");
+        let tris = fan_triangulate(
+            &result.topology.face_vertex_counts,
+            &result.topology.face_vertex_indices,
+        );
+
+        if params.limit_normals {
+            // Push vertices onto the exact limit surface and shade with the
+            // limit normal `tangent1 × tangent2`.
+            // Compose the limit masks onto the cage→refined stencils so they
+            // map control points straight to limit position + tangents.
+            let limit = result
+                .compose_limit_stencils(cage.positions.len())
+                .expect("limit stencils");
+            let positions = limit.position.interpolate(&cage.positions);
+            let t1 = limit.tangent1.interpolate(&cage.positions);
+            let t2 = limit.tangent2.interpolate(&cage.positions);
+            let normals = t1
+                .iter()
+                .zip(&t2)
+                .map(|(a, b)| {
+                    Vec3::from(*a)
+                        .cross(Vec3::from(*b))
+                        .normalize_or_zero()
+                        .to_array()
+                })
+                .collect();
+            (positions, normals, tris)
+        } else {
+            let positions = result.interpolate(&cage.positions);
+            let normals = smooth_normals(&positions, &tris);
+            (positions, normals, tris)
+        }
+    };
+
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::default(),
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_indices(Indices::U32(tris))
+}
+
+fn fan_triangulate(counts: &[u32], indices: &[u32]) -> Vec<u32> {
+    let mut tris = Vec::new();
+    let mut o = 0usize;
+    for &n in counts {
+        let n = n as usize;
+        for k in 1..n - 1 {
+            tris.extend_from_slice(&[indices[o], indices[o + k], indices[o + k + 1]]);
+        }
+        o += n;
+    }
+    tris
+}
+
+fn smooth_normals(positions: &[[f32; 3]], tris: &[u32]) -> Vec<[f32; 3]> {
+    let mut acc = vec![Vec3::ZERO; positions.len()];
+    for t in tris.chunks_exact(3) {
+        let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
+        let pa = Vec3::from(positions[a]);
+        let n = (Vec3::from(positions[b]) - pa).cross(Vec3::from(positions[c]) - pa);
+        acc[a] += n;
+        acc[b] += n;
+        acc[c] += n;
+    }
+    acc.iter()
+        .map(|v| v.normalize_or_zero().to_array())
+        .collect()
+}
+
+// ── Dodecahedron cage (built geometrically — correct by construction) ────
+
+fn build_cage() -> CageData {
+    let phi = (1.0 + 5.0_f32.sqrt()) / 2.0;
+    let inv = 1.0 / phi;
+
+    // 20 vertices: 8 cube corners + 12 from the (0, ±1/φ, ±φ) cyclic set.
+    let mut positions: Vec<[f32; 3]> = Vec::with_capacity(20);
+    for &x in &[-1.0_f32, 1.0] {
+        for &y in &[-1.0_f32, 1.0] {
+            for &z in &[-1.0_f32, 1.0] {
+                positions.push([x, y, z]);
+            }
+        }
+    }
+    for &a in &[-inv, inv] {
+        for &b in &[-phi, phi] {
+            positions.push([0.0, a, b]);
+            positions.push([a, b, 0.0]);
+            positions.push([b, 0.0, a]);
+        }
+    }
+
+    // 12 face normals: the dodecahedron's face centers point along (0, ±φ, ±1)
+    // and its cyclic permutations (the φ component leads, unlike the vertices).
+    let mut centers: Vec<Vec3> = Vec::with_capacity(12);
+    for &a in &[-1.0_f32, 1.0] {
+        for &b in &[-phi, phi] {
+            centers.push(Vec3::new(0.0, b, a));
+            centers.push(Vec3::new(b, a, 0.0));
+            centers.push(Vec3::new(a, 0.0, b));
+        }
+    }
+
+    // Each face = the 5 vertices nearest its center, ordered CCW about it.
+    let faces: Vec<Vec<u32>> = centers
+        .iter()
+        .map(|c| {
+            let cn = c.normalize();
+            let mut ring: Vec<usize> = (0..positions.len()).collect();
+            ring.sort_by(|&i, &j| {
+                let di = Vec3::from(positions[j]).dot(cn);
+                let dj = Vec3::from(positions[i]).dot(cn);
+                di.partial_cmp(&dj).unwrap()
+            });
+            ring.truncate(5);
+            let u = perp(cn);
+            let w = cn.cross(u);
+            ring.sort_by(|&i, &j| {
+                angle(positions[i], u, w)
+                    .partial_cmp(&angle(positions[j], u, w))
+                    .unwrap()
+            });
+            ring.into_iter().map(|i| i as u32).collect()
+        })
+        .collect();
+
+    // Dedup edges from faces; record each face's edge ring (so any face is
+    // creasable).
+    let mut edge_index: HashMap<(u32, u32), usize> = HashMap::new();
+    let mut edge_vertices: Vec<[u32; 2]> = Vec::new();
+    let mut face_edge = |a: u32, b: u32| -> usize {
+        let key = (a.min(b), a.max(b));
+        *edge_index.entry(key).or_insert_with(|| {
+            edge_vertices.push([key.0, key.1]);
+            edge_vertices.len() - 1
+        })
+    };
+
+    let mut face_edges: Vec<Vec<usize>> = Vec::with_capacity(faces.len());
+    let mut face_vertex_indices = Vec::new();
+    for face in &faces {
+        let ring = (0..face.len())
+            .map(|k| face_edge(face[k], face[(k + 1) % face.len()]))
+            .collect();
+        face_edges.push(ring);
+        face_vertex_indices.extend_from_slice(face);
+    }
+
+    CageData {
+        vertex_count: positions.len() as u32,
+        face_vertex_counts: vec![5; faces.len()],
+        face_vertex_indices,
+        edge_vertices,
+        positions,
+        face_edges,
+    }
+}
+
+/// A unit vector perpendicular to `c`.
+fn perp(c: Vec3) -> Vec3 {
+    let a = if c.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+    (a - c * a.dot(c)).normalize()
+}
+
+/// Angle of `v` in the plane spanned by basis `(u, w)`.
+fn angle(v: [f32; 3], u: Vec3, w: Vec3) -> f32 {
+    let p = Vec3::from(v);
+    p.dot(w).atan2(p.dot(u))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(level: u8, creased: bool, crease_face: usize, limit_normals: bool) -> Params {
+        Params {
+            level,
+            creased,
+            crease_face,
+            crease_value: 4.0,
+            limit_normals,
+            dirty: false,
+        }
+    }
+
+    #[test]
+    fn cage_is_valid_and_subdivides() {
+        let cage = build_cage();
+        // Regular dodecahedron: 20 vertices, 12 pentagons, 30 edges
+        // (Euler: V - E + F = 20 - 30 + 12 = 2).
+        assert_eq!(cage.vertex_count, 20);
+        assert_eq!(cage.face_vertex_counts.len(), FACE_COUNT);
+        assert!(cage.face_vertex_counts.iter().all(|&n| n == 5));
+        assert_eq!(cage.edge_vertices.len(), 30);
+        assert_eq!(cage.face_edges.len(), FACE_COUNT);
+        assert!(cage.face_edges.iter().all(|r| r.len() == 5));
+
+        // Every level (base + 4), creased and not, calculated and limit normals,
+        // across a few faces, must build cleanly (a bad cage or limit-eval would
+        // panic in the kernel).
+        for creased in [false, true] {
+            for limit_normals in [false, true] {
+                for level in 0..=MAX_LEVEL {
+                    let face = level as usize % FACE_COUNT;
+                    let mesh = build_surface(&cage, &params(level, creased, face, limit_normals));
+                    assert!(mesh.count_vertices() > 0);
+                }
+            }
+        }
+    }
+}

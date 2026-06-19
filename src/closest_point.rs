@@ -321,9 +321,9 @@ fn face_box(evaluator: &LimitEvaluator, face: u32) -> Aabb {
             let support: BTreeSet<u32> = mesh.face_vertex_indices[off..off + 4]
                 .iter()
                 .flat_map(|&corner| {
-                    let start = adjacency.vert_face_offsets[corner as usize] as usize;
-                    let end = adjacency.vert_face_offsets[corner as usize + 1] as usize;
-                    adjacency.vert_faces[start..end].iter().copied()
+                    let start = adjacency.vertex_face_offsets[corner as usize] as usize;
+                    let end = adjacency.vertex_face_offsets[corner as usize + 1] as usize;
+                    adjacency.vertex_faces[start..end].iter().copied()
                 })
                 .collect();
             for f in support {
@@ -624,10 +624,10 @@ impl LimitEvaluator<'_> {
         let mesh = &self.result.topology;
         let adjacency = &self.result.adjacency;
         let vi = mesh.face_vertex_indices[face as usize * 4 + corner];
-        let start = adjacency.vert_face_offsets[vi as usize] as usize;
-        let end = adjacency.vert_face_offsets[vi as usize + 1] as usize;
+        let start = adjacency.vertex_face_offsets[vi as usize] as usize;
+        let end = adjacency.vertex_face_offsets[vi as usize + 1] as usize;
         let mut acc = [0.0; 3];
-        for &fan_face in &adjacency.vert_faces[start..end] {
+        for &fan_face in &adjacency.vertex_faces[start..end] {
             let off = fan_face as usize * 4;
             let k = mesh.face_vertex_indices[off..off + 4]
                 .iter()
@@ -962,9 +962,9 @@ impl Minimizer<'_, '_> {
             return;
         }
         self.fanned.push(vi);
-        let start = adjacency.vert_face_offsets[vi as usize] as usize;
-        let end = adjacency.vert_face_offsets[vi as usize + 1] as usize;
-        for &fan_face in &adjacency.vert_faces[start..end] {
+        let start = adjacency.vertex_face_offsets[vi as usize] as usize;
+        let end = adjacency.vertex_face_offsets[vi as usize + 1] as usize;
+        for &fan_face in &adjacency.vertex_faces[start..end] {
             let off = fan_face as usize * 4;
             if let Some(k) = mesh.face_vertex_indices[off..off + 4]
                 .iter()

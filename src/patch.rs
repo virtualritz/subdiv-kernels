@@ -233,12 +233,12 @@ fn build_patch_table(result: &RefinementResult) -> Result<PatchTable, KernelErro
     // convention of the limit module docs; boundary edges are sharp).
     let regular_corner: Vec<bool> = (0..mesh.vertex_count as usize)
         .map(|vi| {
-            let start = adjacency.vert_edge_offsets[vi] as usize;
-            let end = adjacency.vert_edge_offsets[vi + 1] as usize;
+            let start = adjacency.vertex_edge_offsets[vi] as usize;
+            let end = adjacency.vertex_edge_offsets[vi + 1] as usize;
             !adjacency.vertex_is_boundary[vi]
                 && end - start == 4
                 && mesh.vertex_corners[vi] <= 0.0
-                && adjacency.vert_edges[start..end].iter().all(|&ei| {
+                && adjacency.vertex_edges[start..end].iter().all(|&ei| {
                     mesh.edge_creases[ei as usize] <= 0.0
                         && !adjacency.edge_is_boundary[ei as usize]
                 })

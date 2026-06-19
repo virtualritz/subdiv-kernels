@@ -505,8 +505,8 @@ fn extraordinary_corner_queries_walk_the_vertex_fan() {
     let tan2 = limit.tangent2.interpolate(&ours.refined);
 
     let valence = |vi: usize| {
-        ours.result.adjacency.vert_edge_offsets[vi + 1]
-            - ours.result.adjacency.vert_edge_offsets[vi]
+        ours.result.adjacency.vertex_edge_offsets[vi + 1]
+            - ours.result.adjacency.vertex_edge_offsets[vi]
     };
     let ev = (0..ours.result.topology.vertex_count as usize)
         .find(|&vi| valence(vi) == 3)
@@ -562,9 +562,9 @@ fn crease_wedge_queries_sign_by_pseudonormal() {
     let tan2 = sectored.tangent2.interpolate(&ours.refined);
 
     let sharp_count = |vi: usize| {
-        let start = ours.result.adjacency.vert_edge_offsets[vi] as usize;
-        let end = ours.result.adjacency.vert_edge_offsets[vi + 1] as usize;
-        ours.result.adjacency.vert_edges[start..end]
+        let start = ours.result.adjacency.vertex_edge_offsets[vi] as usize;
+        let end = ours.result.adjacency.vertex_edge_offsets[vi + 1] as usize;
+        ours.result.adjacency.vertex_edges[start..end]
             .iter()
             .filter(|&&e| ours.result.topology.edge_creases[e as usize] > 0.0)
             .count()
@@ -575,9 +575,9 @@ fn crease_wedge_queries_sign_by_pseudonormal() {
 
     // The vertex's two sector normals from its incident face-corners.
     let mut normals: Vec<[f64; 3]> = Vec::new();
-    let fstart = ours.result.adjacency.vert_face_offsets[rim] as usize;
-    let fend = ours.result.adjacency.vert_face_offsets[rim + 1] as usize;
-    for &face in &ours.result.adjacency.vert_faces[fstart..fend] {
+    let fstart = ours.result.adjacency.vertex_face_offsets[rim] as usize;
+    let fend = ours.result.adjacency.vertex_face_offsets[rim + 1] as usize;
+    for &face in &ours.result.adjacency.vertex_faces[fstart..fend] {
         let k = ours.result.topology.face_vertex_indices[face as usize * 4..face as usize * 4 + 4]
             .iter()
             .position(|&c| c as usize == rim)
@@ -627,7 +627,7 @@ fn crease_wedge_queries_sign_by_pseudonormal() {
 }
 
 fn valence_of(ours: &EvaluatedCase, vi: usize) -> u32 {
-    ours.result.adjacency.vert_edge_offsets[vi + 1] - ours.result.adjacency.vert_edge_offsets[vi]
+    ours.result.adjacency.vertex_edge_offsets[vi + 1] - ours.result.adjacency.vertex_edge_offsets[vi]
 }
 
 // -- Determinism ---------------------------------------------------------------

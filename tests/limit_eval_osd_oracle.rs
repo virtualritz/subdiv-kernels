@@ -101,11 +101,11 @@ fn feature_case(case: &Case, level: u8) -> FeatureCase {
 /// Whether refined vertex `vi` is a smooth extraordinary vertex (the
 /// derivative-exclusion predicate of the module docs).
 fn smooth_extraordinary(ours: &FeatureCase, vi: u32) -> bool {
-    let start = ours.result.adjacency.vert_edge_offsets[vi as usize] as usize;
-    let end = ours.result.adjacency.vert_edge_offsets[vi as usize + 1] as usize;
+    let start = ours.result.adjacency.vertex_edge_offsets[vi as usize] as usize;
+    let end = ours.result.adjacency.vertex_edge_offsets[vi as usize + 1] as usize;
     end - start != 4
         && !ours.result.adjacency.vertex_is_boundary[vi as usize]
-        && ours.result.adjacency.vert_edges[start..end]
+        && ours.result.adjacency.vertex_edges[start..end]
             .iter()
             .all(|&e| ours.result.topology.edge_creases[e as usize] <= 0.0)
 }

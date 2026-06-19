@@ -253,8 +253,8 @@ fn cube_ev_corner() -> (EvaluatedCase, u32, usize, [f64; 3]) {
     let limit_positions = limit.position.interpolate(&ours.refined);
 
     let valence = |vi: u32| {
-        ours.result.adjacency.vert_edge_offsets[vi as usize + 1]
-            - ours.result.adjacency.vert_edge_offsets[vi as usize]
+        ours.result.adjacency.vertex_edge_offsets[vi as usize + 1]
+            - ours.result.adjacency.vertex_edge_offsets[vi as usize]
     };
     let (face, k) = (0..ours.result.topology.face_vertex_counts.len() as u32)
         .find_map(|face| {

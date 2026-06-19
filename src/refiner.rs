@@ -135,14 +135,25 @@ pub struct Refinement {
 /// with zero clones.
 #[non_exhaustive]
 pub struct RefinedFinalParts {
+    /// Final-level control mesh (faces, edges, creases).
     pub topology: Mesh,
+    /// Per-level vertex/edge/face lineage back to the input.
     pub lineage: LineageMaps,
+    /// Final-level adjacency (edges, vertex rings, boundary flags).
     pub adjacency: Adjacency,
+    /// Final-level face-selection mask, if face-selective refinement was used.
     pub selected_faces: Option<Vec<bool>>,
+    /// Per input edge, the refined vertices lying on it, if requested.
     pub edge_polylines: Option<Vec<Vec<u32>>>,
 }
 
 impl Refinement {
+    /// The subdivision scheme this refinement was produced with.
+    #[must_use]
+    pub fn scheme(&self) -> Scheme {
+        self.scheme
+    }
+
     /// Compute per-level vertex stencils from cached topology.
     ///
     /// Returns one `StencilTable` per refinement step (length equals

@@ -627,9 +627,9 @@ pub(crate) fn vertex_ring(
     mesh: &Mesh,
     adjacency: &Adjacency,
 ) -> Result<Ring, KernelError> {
-    let face_start = adjacency.vert_face_offsets[vi] as usize;
-    let face_end = adjacency.vert_face_offsets[vi + 1] as usize;
-    let incident_faces = &adjacency.vert_faces[face_start..face_end];
+    let face_start = adjacency.vertex_face_offsets[vi] as usize;
+    let face_end = adjacency.vertex_face_offsets[vi + 1] as usize;
+    let incident_faces = &adjacency.vertex_faces[face_start..face_end];
     if incident_faces.is_empty() {
         return Err(KernelError::InvalidTopology(
             "vertex without incident faces has no limit ring",
@@ -706,7 +706,7 @@ pub(crate) fn vertex_ring(
         ));
     }
     let incident_edge_count =
-        (adjacency.vert_edge_offsets[vi + 1] - adjacency.vert_edge_offsets[vi]) as usize;
+        (adjacency.vertex_edge_offsets[vi + 1] - adjacency.vertex_edge_offsets[vi]) as usize;
     if edges.len() != incident_edge_count {
         return Err(KernelError::InvalidTopology(
             "vertex ring does not cover all incident edges (non-manifold fan)",

@@ -101,8 +101,8 @@ fn refine(topo: Mesh, levels: u8) -> RefinementResult {
 fn valence_three(result: &RefinementResult) -> Vec<bool> {
     (0..result.topology.vertex_count as usize)
         .map(|vi| {
-            let start = result.adjacency.vert_edge_offsets[vi];
-            let end = result.adjacency.vert_edge_offsets[vi + 1];
+            let start = result.adjacency.vertex_edge_offsets[vi];
+            let end = result.adjacency.vertex_edge_offsets[vi + 1];
             end - start == 3
         })
         .collect()

@@ -2,8 +2,12 @@
 name = "subdiv-kernels"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "Standalone subdivision kernel crate for Rust and wasm32 workflows"
+repository = "https://github.com/virtualritz/subdiv-kernels"
 license = "MIT OR Apache-2.0 OR Zlib OR BSD-3-Clause"
+keywords = ["subdivision", "mesh", "catmull-clark", "geometry", "graphics"]
+categories = ["graphics", "rendering", "mathematics"]
 
 [package.metadata.docs.rs]
 # Document every feature (incl. wgpu) on docs.rs, with "available on feature X"
@@ -17,6 +21,9 @@ serde = ["dep:serde"]
 parallel = ["dep:rayon"]
 ## GPU (wgpu) compute path for stencil evaluation.
 wgpu = ["dep:wgpu", "dep:bytemuck", "dep:pollster"]
+## Enables the interactive Bevy example (`--example bevy`); pulls bevy +
+## bevy_egui. Not a public API surface.
+bevy = ["dep:bevy", "dep:bevy_egui"]
 
 [dependencies]
 thiserror = "2"
@@ -29,12 +36,19 @@ pollster = { version = "0.4", optional = true }
 rustc-hash = "2.1.2"
 smallvec = { version = "1.15.2", features = ["union"] }
 
+## Interactive Bevy example only (`--features bevy`). Bevy 0.19 needs Rust
+## >= 1.95; this does not affect the core crate's MSRV. bevy_egui is still a
+## release candidate — it's the only version that supports Bevy 0.19 so far.
+bevy = { version = "0.19", optional = true }
+bevy_egui = { version = "0.40.0-rc.1", optional = true }
+
 [dev-dependencies]
 criterion = "0.5"
 ## Limit-surface oracle (GPU-subdivision design §5/§7): OpenSubdiv far's
 ## LimitStencilTable. Builds the vendored OpenSubdiv C++ -- the first
-## compile takes minutes.
-opensubdiv-petite = { path = "../opensubdiv-petite/opensubdiv-petite" }
+## compile takes minutes. For local opensubdiv-petite dev, override with a
+## `[patch.crates-io]` entry instead of a path dep.
+opensubdiv-petite = "0.3"
 
 [[bench]]
 name = "sparse_eval"
@@ -48,3 +62,7 @@ harness = false
 name = "wgpu_eval"
 harness = false
 required-features = ["wgpu"]
+
+[[example]]
+name = "bevy"
+required-features = ["bevy"]

@@ -167,8 +167,8 @@ pub fn spoked_cube_case() -> (Case, u32) {
         .iter()
         .position(|origin| *origin == VertexOrigin::Face(1))
         .expect("face point of base face 1") as u32;
-    let estart = result.adjacency.vert_edge_offsets[center as usize] as usize;
-    let crease_pairs: Vec<[u32; 2]> = result.adjacency.vert_edges[estart..estart + 3]
+    let estart = result.adjacency.vertex_edge_offsets[center as usize] as usize;
+    let crease_pairs: Vec<[u32; 2]> = result.adjacency.vertex_edges[estart..estart + 3]
         .iter()
         .map(|&ei| {
             let [a, b] = result.topology.edge_vertices[ei as usize];

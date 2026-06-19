@@ -100,9 +100,9 @@ fn our_samples(case: &Case) -> (Vec<Sample>, Vec<bool>) {
     // crease at the refined level.
     let ambiguous = (0..result.topology.vertex_count as usize)
         .map(|vi| {
-            let start = result.adjacency.vert_edge_offsets[vi] as usize;
-            let end = result.adjacency.vert_edge_offsets[vi + 1] as usize;
-            result.adjacency.vert_edges[start..end]
+            let start = result.adjacency.vertex_edge_offsets[vi] as usize;
+            let end = result.adjacency.vertex_edge_offsets[vi + 1] as usize;
+            result.adjacency.vertex_edges[start..end]
                 .iter()
                 .any(|&ei| result.topology.edge_creases[ei as usize] > 0.0)
         })
@@ -251,9 +251,9 @@ fn assert_sectored_limit_matches_oracle(case: &Case) -> (SectoredSamples, Vec<(u
     );
     let pinned: Vec<bool> = (0..topo.vertex_count as usize)
         .map(|vi| {
-            let start = ours.result.adjacency.vert_edge_offsets[vi] as usize;
-            let end = ours.result.adjacency.vert_edge_offsets[vi + 1] as usize;
-            let sharp = ours.result.adjacency.vert_edges[start..end]
+            let start = ours.result.adjacency.vertex_edge_offsets[vi] as usize;
+            let end = ours.result.adjacency.vertex_edge_offsets[vi + 1] as usize;
+            let sharp = ours.result.adjacency.vertex_edges[start..end]
                 .iter()
                 .filter(|&&ei| topo.edge_creases[ei as usize] > 0.0)
                 .count();
@@ -338,9 +338,9 @@ fn assert_sectored_limit_matches_oracle(case: &Case) -> (SectoredSamples, Vec<(u
 fn crease_vertices(ours: &SectoredSamples) -> Vec<u32> {
     (0..ours.result.topology.vertex_count)
         .filter(|&vi| {
-            let start = ours.result.adjacency.vert_edge_offsets[vi as usize] as usize;
-            let end = ours.result.adjacency.vert_edge_offsets[vi as usize + 1] as usize;
-            ours.result.adjacency.vert_edges[start..end]
+            let start = ours.result.adjacency.vertex_edge_offsets[vi as usize] as usize;
+            let end = ours.result.adjacency.vertex_edge_offsets[vi as usize + 1] as usize;
+            ours.result.adjacency.vertex_edges[start..end]
                 .iter()
                 .filter(|&&ei| ours.result.topology.edge_creases[ei as usize] > 0.0)
                 .count()

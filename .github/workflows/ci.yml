@@ -1,10 +1,10 @@
 name: CI
 
-# Anti-rot gate. The limit-normal OpenSubdiv-oracle tests silently rotted
-# once (the `opensubdiv-petite` dev-dep drifted its API and bumped vendored
-# OpenSubdiv 3.5 -> 3.6.1) because nothing ran them. The `oracle` job below
-# compiles AND runs those tests on every push/PR, which catches both compile
-# drift and runtime divergence.
+# Anti-rot gate. The limit-normal OpenSubdiv-oracle tests silently rotted once
+# (the `opensubdiv-petite` dep drifted its API and bumped vendored OpenSubdiv
+# 3.5 -> 3.6.1) because nothing ran them. The `oracle` job below compiles AND
+# runs those tests on every push/PR, which catches both compile drift and
+# runtime divergence.
 
 on:
   push:
@@ -20,8 +20,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Cheap, fast feedback: formatting + library-level lint. Compiles only the
-  # subdiv-kernels lib (no `opensubdiv-petite`, no C++ OpenSubdiv build).
+  # Cheap, fast feedback: formatting, library-level lint, and README freshness.
+  # Compiles only the subdiv-kernels lib (no `opensubdiv-petite`, no C++ build).
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -30,6 +30,9 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-rdme
       # Informational only: the tree carries pre-existing rustfmt version-drift
       # diffs (doc/import rewrapping). Surface them without blocking PRs until a
       # one-shot tree-wide reformat under a pinned toolchain lands; flip to a
@@ -39,34 +42,21 @@ jobs:
         continue-on-error: true
       - name: clippy (lib)
         run: cargo clippy --lib
+      # Fail if the README has drifted from the lib.rs crate docs. Warnings
+      # (unresolved re-export intra-doc links) are expected and don't fail.
+      - name: README in sync with lib.rs
+        run: cargo rdme --check --no-fail-on-warnings
 
-  # Full suite including the OpenSubdiv-oracle gates. This is the real
-  # anti-rot job: it needs the sibling `opensubdiv-petite` checkout (a path
-  # dev-dep, `../opensubdiv-petite/opensubdiv-petite`) plus its vendored
-  # OpenSubdiv submodule, built via cmake + a C++ compiler.
+  # Full suite including the OpenSubdiv-oracle gates. `opensubdiv-petite` is a
+  # crates.io dependency that vendors OpenSubdiv and builds it via cmake + a C++
+  # compiler, so those are installed here.
   oracle:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout subdiv-kernels
-        uses: actions/checkout@v4
-        with:
-          path: subdiv-kernels
-
-      - name: Checkout opensubdiv-petite (sibling path dep)
-        uses: actions/checkout@v4
-        with:
-          repository: virtualritz/opensubdiv-petite
-          path: opensubdiv-petite
-          submodules: recursive
-
-      - name: Install C++ build tooling for vendored OpenSubdiv
-        run: sudo apt-get update && sudo apt-get install -y cmake clang
-
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: subdiv-kernels
-
+      - name: Install C++ build tooling for vendored OpenSubdiv
+        run: sudo apt-get update && sudo apt-get install -y cmake clang
       - name: Test (default features, includes OSD oracle)
-        working-directory: subdiv-kernels
         run: cargo test --no-fail-fast

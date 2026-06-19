@@ -242,14 +242,14 @@ pub(crate) fn refine_topology_once(
     let adj_edge_is_boundary: Vec<bool> =
         adj_edge_faces.iter().map(|ef| ef[1] == u32::MAX).collect();
 
-    let (vert_edge_offsets, vert_edges) = refined_analysis.vertex_edges.clone().into_parts();
+    let (vertex_edge_offsets, vertex_edges) = refined_analysis.vertex_edges.clone().into_parts();
 
-    let vert_count = vert_edge_offsets.len().saturating_sub(1);
+    let vert_count = vertex_edge_offsets.len().saturating_sub(1);
     let mut adj_vertex_is_boundary = vec![false; vert_count];
     for vi in 0..vert_count {
-        let s = vert_edge_offsets[vi] as usize;
-        let e = vert_edge_offsets[vi + 1] as usize;
-        if vert_edges[s..e]
+        let s = vertex_edge_offsets[vi] as usize;
+        let e = vertex_edge_offsets[vi + 1] as usize;
+        if vertex_edges[s..e]
             .iter()
             .any(|&ei| adj_edge_is_boundary[ei as usize])
         {
@@ -257,15 +257,15 @@ pub(crate) fn refine_topology_once(
         }
     }
 
-    let (vert_face_offsets, vert_faces) = refined_analysis.vertex_faces.clone().into_parts();
+    let (vertex_face_offsets, vertex_faces) = refined_analysis.vertex_faces.clone().into_parts();
 
     let adjacency = Adjacency {
         face_edges: face_edges_flat,
         edge_faces: adj_edge_faces,
-        vert_edge_offsets,
-        vert_edges,
-        vert_face_offsets,
-        vert_faces,
+        vertex_edge_offsets,
+        vertex_edges,
+        vertex_face_offsets,
+        vertex_faces,
         edge_is_boundary: adj_edge_is_boundary,
         vertex_is_boundary: adj_vertex_is_boundary,
     };
