@@ -1,9 +1,9 @@
 //! Interactive Bevy + egui showcase for `subdiv-kernels`.
 //!
 //! A regular dodecahedron is subdivided live by Catmull–Clark. The egui panel
-//! controls the subdivision level (0–4), which face carries a creased edge ring
-//! and how sharp it is, and whether to shade with exact limit-surface normals;
-//! drag to orbit, scroll to zoom.
+//! controls the subdivision level (0–6), which face carries a creased edge ring
+//! and how sharp it is, whether to shade with exact limit-surface normals, and a
+//! wireframe overlay; drag to orbit, scroll to zoom.
 //!
 //! Run with: `cargo run --example bevy --features bevy`
 //!
@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::num::NonZeroU8;
 use subdiv_kernels::{Mesh as Cage, Refiner, Scheme, SchemeOptions, UniformRefine};
 
-const MAX_LEVEL: u8 = 4;
+const MAX_LEVEL: u8 = 6;
 /// A regular dodecahedron has 12 faces.
 const FACE_COUNT: usize = 12;
 
@@ -33,12 +33,13 @@ fn main() {
             crease_face: 0,
             crease_value: 4.0,
             limit_normals: false,
+            wireframe: false,
             dirty: false,
         })
         .insert_resource(UiWantsPointer(false))
         .add_systems(Startup, setup)
         .add_systems(EguiPrimaryContextPass, ui_panel)
-        .add_systems(Update, (orbit_camera, rebuild_mesh))
+        .add_systems(Update, (orbit_camera, rebuild_mesh, draw_cage_wire))
         .run();
 }
 
@@ -54,6 +55,8 @@ struct Params {
     crease_value: f32,
     /// Shade with exact limit-surface normals instead of per-triangle normals.
     limit_normals: bool,
+    /// Draw the triangle wireframe over the surface.
+    wireframe: bool,
     dirty: bool,
 }
 
@@ -65,6 +68,11 @@ struct UiWantsPointer(bool);
 /// Handle to the surface mesh asset, rebuilt in place on parameter changes.
 #[derive(Resource)]
 struct SurfaceMesh(Handle<Mesh>);
+
+/// Subdivided cage edges (the kernel's polygon edges, not the render triangles)
+/// at current vertex positions, for the wireframe overlay. Rebuilt with the mesh.
+#[derive(Resource, Default)]
+struct CageWire(Vec<[Vec3; 2]>);
 
 /// The control cage (dodecahedron) in `subdiv-kernels` form, plus the edge
 /// indices of every face (so any face's ring can be creased).
@@ -107,7 +115,8 @@ fn setup(
     params: Res<Params>,
 ) {
     let cage = build_cage();
-    let handle = meshes.add(build_surface(&cage, &params));
+    let (mesh, wire) = build_surface(&cage, &params);
+    let handle = meshes.add(mesh);
 
     commands.spawn((
         Mesh3d(handle.clone()),
@@ -119,6 +128,7 @@ fn setup(
         Transform::default(),
     ));
     commands.insert_resource(SurfaceMesh(handle));
+    commands.insert_resource(CageWire(wire));
     commands.insert_resource(cage);
 
     let orbit = Orbit {
@@ -184,6 +194,9 @@ fn ui_panel(
             changed |= ui
                 .checkbox(&mut params.limit_normals, "limit-surface normals")
                 .changed();
+            // Render-only toggle (no mesh rebuild needed): overlays the
+            // subdivided cage edges (the kernel's polygon mesh, not triangles).
+            ui.checkbox(&mut params.wireframe, "cage wireframe");
             if changed {
                 params.dirty = true;
             }
@@ -232,22 +245,37 @@ fn rebuild_mesh(
     mut params: ResMut<Params>,
     cage: Res<CageData>,
     surface: Res<SurfaceMesh>,
+    mut wire: ResMut<CageWire>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
     if !params.dirty {
         return;
     }
     params.dirty = false;
+    let (mesh, edges) = build_surface(&cage, &params);
     // The handle is created in `setup` and never removed, so this can't fail.
-    let _ = meshes.insert(surface.0.id(), build_surface(&cage, &params));
+    let _ = meshes.insert(surface.0.id(), mesh);
+    wire.0 = edges;
+}
+
+/// Draw the subdivided cage's polygon edges when the overlay is enabled.
+fn draw_cage_wire(params: Res<Params>, wire: Res<CageWire>, mut gizmos: Gizmos) {
+    if !params.wireframe {
+        return;
+    }
+    let color = Color::srgb(0.05, 0.05, 0.08);
+    for [a, b] in &wire.0 {
+        gizmos.line(*a, *b, color);
+    }
 }
 
 // ── Subdivision → Bevy mesh ─────────────────────────────────────────────
 
 /// Subdivide the cage to `params.level` (0 = base cage) and build a triangulated
-/// Bevy mesh. Normals are either exact limit-surface normals (`tangent1 ×
-/// tangent2` from the limit stencils) or averaged from the triangles.
-fn build_surface(cage: &CageData, params: &Params) -> Mesh {
+/// Bevy mesh plus the subdivided cage's polygon edges (for the wireframe
+/// overlay). Normals are either exact limit-surface normals (`tangent1 ×
+/// tangent2` from the sectored limit stencils) or averaged from the triangles.
+fn build_surface(cage: &CageData, params: &Params) -> (Mesh, Vec<[Vec3; 2]>) {
     let crease_ring = &cage.face_edges[params.crease_face.min(FACE_COUNT - 1)];
     let edge_creases: Vec<f32> = (0..cage.edge_vertices.len())
         .map(|i| {
@@ -268,12 +296,27 @@ fn build_surface(cage: &CageData, params: &Params) -> Mesh {
         vertex_corners: vec![0.0; cage.vertex_count as usize],
     };
 
+    // `positions/normals/tris` build the render mesh; `vertex_pos` + `edges`
+    // (the kernel's per-vertex positions and polygon edges) build the overlay.
     // Level 0 is the base cage; it has no refinement result, so limit normals
     // fall back to calculated ones there.
-    let (positions, normals, tris) = if params.level == 0 {
+    #[allow(clippy::type_complexity)]
+    let (positions, normals, tris, vertex_pos, edges): (
+        Vec<[f32; 3]>,
+        Vec<[f32; 3]>,
+        Vec<u32>,
+        Vec<[f32; 3]>,
+        Vec<[u32; 2]>,
+    ) = if params.level == 0 {
         let tris = fan_triangulate(&cage.face_vertex_counts, &cage.face_vertex_indices);
         let normals = smooth_normals(&cage.positions, &tris);
-        (cage.positions.clone(), normals, tris)
+        (
+            cage.positions.clone(),
+            normals,
+            tris,
+            cage.positions.clone(),
+            cage.edge_vertices.clone(),
+        )
     } else {
         let refiner =
             Refiner::new(mesh, Scheme::CatmullClark, SchemeOptions::default()).expect("valid cage");
@@ -282,25 +325,21 @@ fn build_surface(cage: &CageData, params: &Params) -> Mesh {
                 NonZeroU8::new(params.level).expect("level >= 1"),
             ))
             .expect("refinement");
-        let tris = fan_triangulate(
-            &result.topology.face_vertex_counts,
-            &result.topology.face_vertex_indices,
-        );
-
+        let edges = result.topology.edge_vertices.clone();
         if params.limit_normals {
-            // Push vertices onto the exact limit surface and shade with the
-            // limit normal `tangent1 × tangent2`.
-            // Compose the limit masks onto the cage→refined stencils so they
-            // map control points straight to limit position + tangents.
+            // Push vertices onto the exact limit surface and shade with the limit
+            // normal (tangent1 × tangent2). Sectored stencils give per-corner
+            // tangents, so each side of a crease shades with its own normal — a
+            // single per-vertex normal would be wrong on one side of the ridge.
             let limit = result
-                .compose_limit_stencils(cage.positions.len())
+                .compose_sectored_limit_stencils(cage.positions.len())
                 .expect("limit stencils");
-            let positions = limit.position.interpolate(&cage.positions);
-            let t1 = limit.tangent1.interpolate(&cage.positions);
-            let t2 = limit.tangent2.interpolate(&cage.positions);
-            let normals = t1
+            let vertex_pos = limit.position.interpolate(&cage.positions); // per vertex
+            let st1 = limit.tangent1.interpolate(&cage.positions); // per sector
+            let st2 = limit.tangent2.interpolate(&cage.positions);
+            let sector_n: Vec<[f32; 3]> = st1
                 .iter()
-                .zip(&t2)
+                .zip(&st2)
                 .map(|(a, b)| {
                     Vec3::from(*a)
                         .cross(Vec3::from(*b))
@@ -308,21 +347,57 @@ fn build_surface(cage: &CageData, params: &Params) -> Mesh {
                         .to_array()
                 })
                 .collect();
-            (positions, normals, tris)
+
+            // Expand to per-corner vertices so each corner carries its sector's
+            // normal, then fan-triangulate each face.
+            let counts = &result.topology.face_vertex_counts;
+            let fvi = &result.topology.face_vertex_indices;
+            let mut positions = Vec::new();
+            let mut normals = Vec::new();
+            let mut tris = Vec::new();
+            let mut corner = 0usize;
+            for &n in counts {
+                let n = n as usize;
+                let base = positions.len() as u32;
+                for k in 0..n {
+                    let fc = corner + k;
+                    positions.push(vertex_pos[fvi[fc] as usize]);
+                    normals.push(sector_n[limit.corner_sector[fc] as usize]);
+                }
+                for k in 1..n - 1 {
+                    tris.extend_from_slice(&[base, base + k as u32, base + (k + 1) as u32]);
+                }
+                corner += n;
+            }
+            (positions, normals, tris, vertex_pos, edges)
         } else {
-            let positions = result.interpolate(&cage.positions);
-            let normals = smooth_normals(&positions, &tris);
-            (positions, normals, tris)
+            let vertex_pos = result.interpolate(&cage.positions);
+            let tris = fan_triangulate(
+                &result.topology.face_vertex_counts,
+                &result.topology.face_vertex_indices,
+            );
+            let normals = smooth_normals(&vertex_pos, &tris);
+            (vertex_pos.clone(), normals, tris, vertex_pos, edges)
         }
     };
 
-    Mesh::new(
+    let render = Mesh::new(
         PrimitiveTopology::TriangleList,
         RenderAssetUsages::default(),
     )
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_indices(Indices::U32(tris))
+    .with_inserted_indices(Indices::U32(tris));
+    let wire = edges
+        .iter()
+        .map(|e| {
+            [
+                Vec3::from(vertex_pos[e[0] as usize]),
+                Vec3::from(vertex_pos[e[1] as usize]),
+            ]
+        })
+        .collect();
+    (render, wire)
 }
 
 fn fan_triangulate(counts: &[u32], indices: &[u32]) -> Vec<u32> {
@@ -465,8 +540,61 @@ mod tests {
             crease_face,
             crease_value: 4.0,
             limit_normals,
+            wireframe: false,
             dirty: false,
         }
+    }
+
+    /// Extract a triangle mesh's positions, normals, and indices.
+    fn mesh_data(mesh: &Mesh) -> (Vec<[f32; 3]>, Vec<[f32; 3]>, Vec<u32>) {
+        use bevy::mesh::VertexAttributeValues::Float32x3;
+        let pos = match mesh.attribute(Mesh::ATTRIBUTE_POSITION) {
+            Some(Float32x3(v)) => v.clone(),
+            _ => panic!("positions"),
+        };
+        let nrm = match mesh.attribute(Mesh::ATTRIBUTE_NORMAL) {
+            Some(Float32x3(v)) => v.clone(),
+            _ => panic!("normals"),
+        };
+        let idx = match mesh.indices() {
+            Some(Indices::U32(v)) => v.clone(),
+            _ => panic!("indices"),
+        };
+        (pos, nrm, idx)
+    }
+
+    #[test]
+    fn limit_normals_smooth_at_crease() {
+        // Regression for the limit-normal artifact at the screenshot config
+        // (level 4, crease face 11, sharpness 5.0, limit normals): every
+        // triangle-corner normal must agree with its own face plane. Non-sectored
+        // limit normals dropped the worst agreement to ~0.42 on the crease ridge
+        // (the two mis-lit facets); sectored per-corner normals keep it ~1.0.
+        let cage = build_cage();
+        let mut p = params(4, true, 11, true);
+        p.crease_value = 5.0;
+        let (mesh, _) = build_surface(&cage, &p);
+        let (pos, nrm, idx) = mesh_data(&mesh);
+
+        let mut min_dot = f32::INFINITY;
+        for t in idx.chunks_exact(3) {
+            let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
+            let pa = Vec3::from(pos[a]);
+            let face_n = (Vec3::from(pos[b]) - pa)
+                .cross(Vec3::from(pos[c]) - pa)
+                .normalize_or_zero();
+            if face_n == Vec3::ZERO {
+                continue; // degenerate sliver; nothing to shade
+            }
+            for &v in &[a, b, c] {
+                min_dot = min_dot.min(Vec3::from(nrm[v]).dot(face_n));
+            }
+        }
+        assert!(
+            min_dot > 0.8,
+            "limit normals disagree with face planes (min n·face = {min_dot:.3}); \
+             crease normals likely not sectored"
+        );
     }
 
     #[test]
@@ -488,8 +616,10 @@ mod tests {
             for limit_normals in [false, true] {
                 for level in 0..=MAX_LEVEL {
                     let face = level as usize % FACE_COUNT;
-                    let mesh = build_surface(&cage, &params(level, creased, face, limit_normals));
+                    let (mesh, wire) =
+                        build_surface(&cage, &params(level, creased, face, limit_normals));
                     assert!(mesh.count_vertices() > 0);
+                    assert!(!wire.is_empty());
                 }
             }
         }
