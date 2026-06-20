@@ -69,8 +69,9 @@ struct UiWantsPointer(bool);
 #[derive(Resource)]
 struct SurfaceMesh(Handle<Mesh>);
 
-/// Subdivided cage edges (the kernel's polygon edges, not the render triangles)
-/// at current vertex positions, for the wireframe overlay. Rebuilt with the mesh.
+/// The original cage edges tracked through subdivision (kernel `edge_polylines`)
+/// as segments at current vertex positions, for the wireframe overlay. Rebuilt
+/// with the mesh.
 #[derive(Resource, Default)]
 struct CageWire(Vec<[Vec3; 2]>);
 
@@ -194,8 +195,8 @@ fn ui_panel(
             changed |= ui
                 .checkbox(&mut params.limit_normals, "limit-surface normals")
                 .changed();
-            // Render-only toggle (no mesh rebuild needed): overlays the
-            // subdivided cage edges (the kernel's polygon mesh, not triangles).
+            // Render-only toggle: overlays the original cage edges tracked
+            // through subdivision (edge_polylines), not the render triangulation.
             ui.checkbox(&mut params.wireframe, "cage wireframe");
             if changed {
                 params.dirty = true;
@@ -258,7 +259,7 @@ fn rebuild_mesh(
     wire.0 = edges;
 }
 
-/// Draw the subdivided cage's polygon edges when the overlay is enabled.
+/// Draw the original cage edges (subdivided) when the overlay is enabled.
 fn draw_cage_wire(params: Res<Params>, wire: Res<CageWire>, mut gizmos: Gizmos) {
     if !params.wireframe {
         return;
@@ -272,9 +273,12 @@ fn draw_cage_wire(params: Res<Params>, wire: Res<CageWire>, mut gizmos: Gizmos) 
 // ── Subdivision → Bevy mesh ─────────────────────────────────────────────
 
 /// Subdivide the cage to `params.level` (0 = base cage) and build a triangulated
-/// Bevy mesh plus the subdivided cage's polygon edges (for the wireframe
-/// overlay). Normals are either exact limit-surface normals (`tangent1 ×
-/// tangent2` from the sectored limit stencils) or averaged from the triangles.
+/// Bevy mesh, plus the overlay: the **original** cage edges tracked through
+/// subdivision (`UniformRefine::edge_polylines` — each input edge becomes a
+/// polyline of refined vertices), as curves on the refined/limit surface — not
+/// the full fine edge set. Normals are either exact limit-surface normals
+/// (`tangent1 × tangent2` from the sectored limit stencils) or averaged from the
+/// triangles.
 fn build_surface(cage: &CageData, params: &Params) -> (Mesh, Vec<[Vec3; 2]>) {
     let crease_ring = &cage.face_edges[params.crease_face.min(FACE_COUNT - 1)];
     let edge_creases: Vec<f32> = (0..cage.edge_vertices.len())
@@ -296,37 +300,43 @@ fn build_surface(cage: &CageData, params: &Params) -> (Mesh, Vec<[Vec3; 2]>) {
         vertex_corners: vec![0.0; cage.vertex_count as usize],
     };
 
-    // `positions/normals/tris` build the render mesh; `vertex_pos` + `edges`
-    // (the kernel's per-vertex positions and polygon edges) build the overlay.
-    // Level 0 is the base cage; it has no refinement result, so limit normals
-    // fall back to calculated ones there.
+    // `positions/normals/tris` build the render mesh; `wire` is the original-cage
+    // edge overlay. Level 0 is the base cage; it has no refinement result, so
+    // limit normals fall back to calculated ones and the overlay is the raw cage
+    // edges.
     #[allow(clippy::type_complexity)]
-    let (positions, normals, tris, vertex_pos, edges): (
+    let (positions, normals, tris, wire): (
         Vec<[f32; 3]>,
         Vec<[f32; 3]>,
         Vec<u32>,
-        Vec<[f32; 3]>,
-        Vec<[u32; 2]>,
+        Vec<[Vec3; 2]>,
     ) = if params.level == 0 {
         let tris = fan_triangulate(&cage.face_vertex_counts, &cage.face_vertex_indices);
         let normals = smooth_normals(&cage.positions, &tris);
-        (
-            cage.positions.clone(),
-            normals,
-            tris,
-            cage.positions.clone(),
-            cage.edge_vertices.clone(),
-        )
+        let wire = cage
+            .edge_vertices
+            .iter()
+            .map(|e| {
+                [
+                    Vec3::from(cage.positions[e[0] as usize]),
+                    Vec3::from(cage.positions[e[1] as usize]),
+                ]
+            })
+            .collect();
+        (cage.positions.clone(), normals, tris, wire)
     } else {
         let refiner =
             Refiner::new(mesh, Scheme::CatmullClark, SchemeOptions::default()).expect("valid cage");
-        let result = refiner
-            .refine_uniform(&UniformRefine::from(
-                NonZeroU8::new(params.level).expect("level >= 1"),
-            ))
-            .expect("refinement");
-        let edges = result.topology.edge_vertices.clone();
-        if params.limit_normals {
+        // `edge_polylines` tracks the refined vertices lying along each *input*
+        // edge — i.e. the original cage edges as they subdivide.
+        let req = UniformRefine {
+            levels: NonZeroU8::new(params.level).expect("level >= 1"),
+            edge_polylines: true,
+            ..Default::default()
+        };
+        let result = refiner.refine_uniform(&req).expect("refinement");
+
+        let (positions, normals, tris, vertex_pos) = if params.limit_normals {
             // Push vertices onto the exact limit surface and shade with the limit
             // normal (tangent1 × tangent2). Sectored stencils give per-corner
             // tangents, so each side of a crease shades with its own normal — a
@@ -369,7 +379,7 @@ fn build_surface(cage: &CageData, params: &Params) -> (Mesh, Vec<[Vec3; 2]>) {
                 }
                 corner += n;
             }
-            (positions, normals, tris, vertex_pos, edges)
+            (positions, normals, tris, vertex_pos)
         } else {
             let vertex_pos = result.interpolate(&cage.positions);
             let tris = fan_triangulate(
@@ -377,8 +387,25 @@ fn build_surface(cage: &CageData, params: &Params) -> (Mesh, Vec<[Vec3; 2]>) {
                 &result.topology.face_vertex_indices,
             );
             let normals = smooth_normals(&vertex_pos, &tris);
-            (vertex_pos.clone(), normals, tris, vertex_pos, edges)
-        }
+            (vertex_pos.clone(), normals, tris, vertex_pos)
+        };
+
+        // Connect consecutive vertices of each input-edge polyline into segments.
+        let wire = result
+            .edge_polylines
+            .as_deref()
+            .unwrap_or(&[])
+            .iter()
+            .flat_map(|poly| {
+                poly.windows(2).map(|w| {
+                    [
+                        Vec3::from(vertex_pos[w[0] as usize]),
+                        Vec3::from(vertex_pos[w[1] as usize]),
+                    ]
+                })
+            })
+            .collect();
+        (positions, normals, tris, wire)
     };
 
     let render = Mesh::new(
@@ -388,15 +415,6 @@ fn build_surface(cage: &CageData, params: &Params) -> (Mesh, Vec<[Vec3; 2]>) {
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_indices(Indices::U32(tris));
-    let wire = edges
-        .iter()
-        .map(|e| {
-            [
-                Vec3::from(vertex_pos[e[0] as usize]),
-                Vec3::from(vertex_pos[e[1] as usize]),
-            ]
-        })
-        .collect();
     (render, wire)
 }
 
