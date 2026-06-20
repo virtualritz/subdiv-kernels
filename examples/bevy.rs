@@ -165,6 +165,11 @@ fn setup(
 
 // ── egui panel ──────────────────────────────────────────────────────────
 
+/// Toggle-button caption for a boolean.
+fn on_off(b: bool) -> &'static str {
+    if b { "On" } else { "Off" }
+}
+
 fn ui_panel(
     mut contexts: EguiContexts,
     mut params: ResMut<Params>,
@@ -172,37 +177,66 @@ fn ui_panel(
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     egui::Window::new("subdiv-kernels")
-        .default_width(240.0)
+        .default_width(300.0)
         .show(ctx, |ui| {
-            ui.label("Catmull–Clark · dodecahedron");
+            ui.label("Catmull–Clark · Dodecahedron");
             ui.separator();
             let mut changed = false;
-            changed |= ui
-                .add(egui::Slider::new(&mut params.level, 0..=MAX_LEVEL).text("level"))
-                .changed();
-            changed |= ui.checkbox(&mut params.creased, "creased ring").changed();
-            let creased = params.creased;
-            ui.add_enabled_ui(creased, |ui| {
-                changed |= ui
-                    .add(
-                        egui::Slider::new(&mut params.crease_face, 0..=FACE_COUNT - 1).text("face"),
-                    )
-                    .changed();
-                changed |= ui
-                    .add(egui::Slider::new(&mut params.crease_value, 1.0..=10.0).text("sharpness"))
-                    .changed();
-            });
-            changed |= ui
-                .checkbox(&mut params.limit_normals, "limit-surface normals")
-                .changed();
-            // Render-only toggle: overlays the original cage edges tracked
-            // through subdivision (edge_polylines), not the render triangulation.
-            ui.checkbox(&mut params.wireframe, "cage wireframe");
+            egui::Grid::new("controls")
+                .num_columns(2)
+                .spacing([24.0, 8.0])
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label("Level");
+                    changed |= ui
+                        .add(egui::Slider::new(&mut params.level, 0..=MAX_LEVEL))
+                        .changed();
+                    ui.end_row();
+
+                    ui.label("Creased Ring");
+                    let caption = on_off(params.creased);
+                    changed |= ui.toggle_value(&mut params.creased, caption).changed();
+                    ui.end_row();
+
+                    // Crease controls disable when the ring is off.
+                    let creased = params.creased;
+                    ui.add_enabled(creased, egui::Label::new("Crease Face"));
+                    changed |= ui
+                        .add_enabled(
+                            creased,
+                            egui::Slider::new(&mut params.crease_face, 0..=FACE_COUNT - 1),
+                        )
+                        .changed();
+                    ui.end_row();
+
+                    ui.add_enabled(creased, egui::Label::new("Crease Sharpness"));
+                    changed |= ui
+                        .add_enabled(
+                            creased,
+                            egui::Slider::new(&mut params.crease_value, 1.0..=10.0),
+                        )
+                        .changed();
+                    ui.end_row();
+
+                    ui.label("Limit Normals");
+                    let caption = on_off(params.limit_normals);
+                    changed |= ui
+                        .toggle_value(&mut params.limit_normals, caption)
+                        .changed();
+                    ui.end_row();
+
+                    // Render-only: overlays the original cage edges tracked through
+                    // subdivision (edge_polylines), not the render triangulation.
+                    ui.label("Cage Wireframe");
+                    let caption = on_off(params.wireframe);
+                    ui.toggle_value(&mut params.wireframe, caption);
+                    ui.end_row();
+                });
             if changed {
                 params.dirty = true;
             }
             ui.separator();
-            ui.label("drag: orbit · scroll: zoom");
+            ui.label("Drag to Orbit · Scroll to Zoom");
         });
     ui_wants.0 = ctx.egui_wants_pointer_input();
     Ok(())
