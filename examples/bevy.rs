@@ -165,9 +165,36 @@ fn setup(
 
 // ── egui panel ──────────────────────────────────────────────────────────
 
-/// Toggle-button caption for a boolean.
-fn on_off(b: bool) -> &'static str {
-    if b { "On" } else { "Off" }
+/// An iOS-style sliding toggle switch (egui's widget-gallery `toggle` widget).
+/// Returns the interaction response; check `.changed()` for a flip.
+fn toggle_ui(ui: &mut egui::Ui, on: &mut bool) -> egui::Response {
+    let desired_size = ui.spacing().interact_size.y * egui::vec2(2.0, 1.0);
+    let (rect, mut response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
+    if response.clicked() {
+        *on = !*on;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, "")
+    });
+    if ui.is_rect_visible(rect) {
+        let how_on = ui.ctx().animate_bool_responsive(response.id, *on);
+        let visuals = ui.style().interact_selectable(&response, *on);
+        let rect = rect.expand(visuals.expansion);
+        let radius = 0.5 * rect.height();
+        ui.painter().rect(
+            rect,
+            radius,
+            visuals.bg_fill,
+            visuals.bg_stroke,
+            egui::StrokeKind::Inside,
+        );
+        let circle_x = egui::lerp((rect.left() + radius)..=(rect.right() - radius), how_on);
+        let center = egui::pos2(circle_x, rect.center().y);
+        ui.painter()
+            .circle(center, 0.75 * radius, visuals.bg_fill, visuals.fg_stroke);
+    }
+    response
 }
 
 fn ui_panel(
@@ -194,8 +221,7 @@ fn ui_panel(
                     ui.end_row();
 
                     ui.label("Creased Ring");
-                    let caption = on_off(params.creased);
-                    changed |= ui.toggle_value(&mut params.creased, caption).changed();
+                    changed |= toggle_ui(ui, &mut params.creased).changed();
                     ui.end_row();
 
                     // Crease controls disable when the ring is off.
@@ -219,17 +245,13 @@ fn ui_panel(
                     ui.end_row();
 
                     ui.label("Limit Normals");
-                    let caption = on_off(params.limit_normals);
-                    changed |= ui
-                        .toggle_value(&mut params.limit_normals, caption)
-                        .changed();
+                    changed |= toggle_ui(ui, &mut params.limit_normals).changed();
                     ui.end_row();
 
                     // Render-only: overlays the original cage edges tracked through
                     // subdivision (edge_polylines), not the render triangulation.
                     ui.label("Cage Wireframe");
-                    let caption = on_off(params.wireframe);
-                    ui.toggle_value(&mut params.wireframe, caption);
+                    toggle_ui(ui, &mut params.wireframe);
                     ui.end_row();
                 });
             if changed {
