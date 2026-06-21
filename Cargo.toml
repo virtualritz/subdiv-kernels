@@ -10,9 +10,11 @@ keywords = ["subdivision", "mesh", "catmull-clark", "geometry", "graphics"]
 categories = ["graphics", "rendering", "mathematics"]
 
 [package.metadata.docs.rs]
-# Document every feature (incl. wgpu) on docs.rs, with "available on feature X"
+# Document the public-API features on docs.rs, with "available on feature X"
 # badges (needs the docsrs cfg + the doc_cfg nightly feature gated in lib.rs).
-all-features = true
+# `bevy` is deliberately excluded: it only pulls the example's deps and exposes
+# no public API, so there's nothing to document and no reason to compile Bevy.
+features = ["serde", "parallel", "wgpu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [features]
