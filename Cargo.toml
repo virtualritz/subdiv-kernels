@@ -39,13 +39,12 @@ rustc-hash = "2.1.2"
 smallvec = { version = "1.15.2", features = ["union"] }
 
 ## Interactive Bevy example only (`--features bevy`). Bevy 0.19 needs Rust
-## >= 1.95; this does not affect the core crate's MSRV. bevy_egui is still a
-## release candidate — it's the only version that supports Bevy 0.19 so far.
+## >= 1.95; this does not affect the core crate's MSRV.
 bevy = { version = "0.19", optional = true }
-bevy_egui = { version = "0.40.0-rc.1", optional = true }
+bevy_egui = { version = "0.40", optional = true }
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
 ## Limit-surface oracle (GPU-subdivision design §5/§7): OpenSubdiv far's
 ## LimitStencilTable. Builds the vendored OpenSubdiv C++ -- the first
 ## compile takes minutes. For local opensubdiv-petite dev, override with a
